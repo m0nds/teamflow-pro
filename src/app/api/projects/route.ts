@@ -1,24 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth/next'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { createProjectSchema } from '@/lib/validations/project'
 
+// Demo user ID for portfolio demonstration
+const DEMO_USER_ID = 'demo-user-id'
+
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions)
-    
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
-    const projects = await (prisma as any).project.findMany({
-      where: {
-        userId: session.user.id
-      },
+    const projects = await prisma.project.findMany({
       include: {
         user: {
           select: { id: true, name: true, email: true }
@@ -42,22 +31,16 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
     const body = await request.json()
     const validatedData = createProjectSchema.parse(body)
 
-    const project = await (prisma as any).project.create({
+    // Ensure demo user exists or create it
+    await ensureDemoUser()
+
+    const project = await prisma.project.create({
       data: {
         ...validatedData,
-        userId: session.user.id
+        userId: DEMO_USER_ID
       },
       include: {
         user: {
@@ -72,18 +55,26 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error creating project:', error)
-    
-    // Handle validation errors
-    if (error instanceof Error && error.name === 'ZodError') {
-      return NextResponse.json(
-        { success: false, error: 'Invalid input data', details: error.message },
-        { status: 400 }
-      )
-    }
-
     return NextResponse.json(
       { success: false, error: 'Failed to create project' },
       { status: 500 }
     )
+  }
+}
+
+// Helper function to ensure demo user exists
+async function ensureDemoUser() {
+  const existingUser = await prisma.user.findUnique({
+    where: { id: DEMO_USER_ID }
+  })
+
+  if (!existingUser) {
+    await prisma.user.create({
+      data: {
+        id: DEMO_USER_ID,
+        email: 'demo@teamflow.pro',
+        name: 'Demo User'
+      }
+    })
   }
 }

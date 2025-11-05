@@ -17,6 +17,7 @@ model User {
   email         String    @unique
   emailVerified DateTime?
   image         String?
+  bio           String?   
   password      String?   // For email/password auth
   role          UserRole  @default(MEMBER)
   
@@ -36,14 +37,15 @@ model Project {
   id          String        @id @default(cuid())
   title       String
   description String?
+  coverImage  String?       // Project cover image
+  imagePublicId String?     // Cloudinary public ID
   status      ProjectStatus @default(ACTIVE)
   priority    Priority      @default(MEDIUM)
   dueDate     DateTime?
-  userId      String        // Who created this project
+  userId      String
   
-  // Relationships
   user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tasks       Task[]        // Tasks belonging to this project
+  tasks       Task[]
   
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
