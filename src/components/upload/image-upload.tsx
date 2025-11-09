@@ -77,8 +77,6 @@ export function ImageUpload({
     onRemove?.()
   }
 
-  console.log('preview', preview)
-
   return (
     <div className="space-y-4">
       {preview ? (
