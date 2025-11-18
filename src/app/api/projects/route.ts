@@ -1,9 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { createProjectSchema } from '@/lib/validations/project'
-import { createProjectNotification } from '@/lib/notifications'
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { createProjectSchema } from "@/lib/validations/project";
+import { createProjectNotification } from "@/lib/notifications";
 
-const DEMO_USER_ID = 'demo-user-id'
+const DEMO_USER_ID = "demo-user-id";
+
+// Add helper function
+async function createActivity(
+  type: string,
+  description: string,
+  projectId?: string
+) {
+  try {
+    await prisma.activity.create({
+      data: {
+        type: type as any,
+        description,
+        userId: DEMO_USER_ID,
+        projectId,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to create activity:", error);
+  }
+}
 
 // GET remains the same...
 export async function GET() {
@@ -11,51 +31,58 @@ export async function GET() {
     const projects = await prisma.project.findMany({
       include: {
         user: {
-          select: { id: true, name: true, email: true }
+          select: { id: true, name: true, email: true },
         },
         _count: {
-          select: { tasks: true }
-        }
+          select: { tasks: true },
+        },
       },
-      orderBy: { createdAt: 'desc' }
-    })
+      orderBy: { createdAt: "desc" },
+    });
 
     return NextResponse.json({
       success: true,
-      data: projects
-    })
+      data: projects,
+    });
   } catch (error) {
-    console.error('Error fetching projects:', error)
+    console.error("Error fetching projects:", error);
     return NextResponse.json(
-      { success: false, error: 'Failed to fetch projects' },
+      { success: false, error: "Failed to fetch projects" },
       { status: 500 }
-    )
+    );
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const validatedData = createProjectSchema.parse(body)
+    const body = await request.json();
+    const validatedData = createProjectSchema.parse(body);
 
-    await ensureDemoUser()
+    await ensureDemoUser();
 
     const project = await prisma.project.create({
       data: {
         ...validatedData,
-        userId: DEMO_USER_ID
+        userId: DEMO_USER_ID,
       },
       include: {
         user: {
-          select: { id: true, name: true, email: true }
+          select: { id: true, name: true, email: true },
         },
         _count: {
-          select: { tasks: true }
-        }
-      }
-    })
+          select: { tasks: true },
+        },
+      },
+    });
 
-    console.log('🎉 Project created, now creating notification...')
+    // Create activity
+    await createActivity(
+      "PROJECT_CREATED",
+      `Created project "${project.title}"`,
+      project.id
+    );
+
+    console.log("🎉 Project created, now creating notification...");
 
     // Create notification for project creation
     try {
@@ -63,39 +90,42 @@ export async function POST(request: NextRequest) {
         DEMO_USER_ID,
         project.title,
         project.id,
-        'created'
-      )
-      console.log('✅ Project notification created')
+        "created"
+      );
+      console.log("✅ Project notification created");
     } catch (notifError) {
-      console.error('⚠️ Failed to create notification, but project was created:', notifError)
+      console.error(
+        "⚠️ Failed to create notification, but project was created:",
+        notifError
+      );
       // Don't fail the whole request if notification fails
     }
 
     return NextResponse.json({
       success: true,
-      data: project
-    })
+      data: project,
+    });
   } catch (error) {
-    console.error('Error creating project:', error)
+    console.error("Error creating project:", error);
     return NextResponse.json(
-      { success: false, error: 'Failed to create project' },
+      { success: false, error: "Failed to create project" },
       { status: 500 }
-    )
+    );
   }
 }
 
 async function ensureDemoUser() {
   const existingUser = await prisma.user.findUnique({
-    where: { id: DEMO_USER_ID }
-  })
+    where: { id: DEMO_USER_ID },
+  });
 
   if (!existingUser) {
     await prisma.user.create({
       data: {
         id: DEMO_USER_ID,
-        email: 'demo@teamflow.pro',
-        name: 'Demo User'
-      }
-    })
+        email: "demo@teamflow.pro",
+        name: "Demo User",
+      },
+    });
   }
 }
