@@ -10,7 +10,6 @@ export type NextApiResponseServerIO = NextApiRequest & {
   }
 }
 
-// Socket event types for type safety
 export interface ServerToClientEvents {
   'task-updated': (data: {
     taskId: string
@@ -36,11 +35,21 @@ export interface ServerToClientEvents {
     projectId: string
     timestamp: string
   }) => void
+  
+  'new-notification': (data: {
+    id: string
+    type: string
+    title: string
+    message: string
+    link?: string
+    createdAt: string
+  }) => void
 }
 
 export interface ClientToServerEvents {
   'join-project': (projectId: string) => void
   'leave-project': (projectId: string) => void
+  'join-notifications': (userId: string) => void
   'task-status-change': (data: {
     taskId: string
     status: string

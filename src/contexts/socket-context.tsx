@@ -2,12 +2,11 @@
 
 import { createContext, useContext, useEffect, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
-import { ServerToClientEvents, ClientToServerEvents } from '@/lib/socket'
 
 type SocketContextType = {
-  socket: Socket<ServerToClientEvents, ClientToServerEvents> | null
+  socket: Socket | null
   isConnected: boolean
-  onlineUsers: Map<string, string> // userId -> userName
+  onlineUsers: Map<string, string>
 }
 
 const SocketContext = createContext<SocketContextType>({
@@ -16,34 +15,37 @@ const SocketContext = createContext<SocketContextType>({
   onlineUsers: new Map()
 })
 
+const DEMO_USER_ID = 'demo-user-id'
+
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const [socket, setSocket] = useState<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null)
+  const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
-    // Warm up the Socket.IO API route to ensure the server boots
-    fetch('/api/socket').catch(() => {})
-
-    // Initialize socket connection using same-origin (no hardcoded port)
+    console.log('🔌 Initializing Socket.io client...')
+    
     const socketInstance = io({
       path: '/api/socket',
     })
 
-    // Connection events
     socketInstance.on('connect', () => {
-      console.log('Connected to Socket.io server')
+      console.log('✅ Connected to Socket.io server, socket ID:', socketInstance.id)
       setIsConnected(true)
+      
+      // Join personal notification room
+      console.log(`📥 Joining notification room for user: ${DEMO_USER_ID}`)
+      socketInstance.emit('join-notifications', DEMO_USER_ID)
     })
 
     socketInstance.on('disconnect', () => {
-      console.log('Disconnected from Socket.io server')
+      console.log('❌ Disconnected from Socket.io server')
       setIsConnected(false)
       setOnlineUsers(new Map())
     })
 
-    // User presence events
     socketInstance.on('user-joined', (data) => {
+      console.log('👋 User joined:', data)
       setOnlineUsers(prev => {
         const updated = new Map(prev)
         updated.set(data.userId, data.userName)
@@ -52,6 +54,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     socketInstance.on('user-left', (data) => {
+      console.log('👋 User left:', data)
       setOnlineUsers(prev => {
         const updated = new Map(prev)
         updated.delete(data.userId)
@@ -59,10 +62,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       })
     })
 
+    // Test event listener
+    socketInstance.on('new-notification', (data) => {
+      console.log('🔔 NEW NOTIFICATION RECEIVED VIA SOCKET:', data)
+    })
+
     setSocket(socketInstance)
 
-    // Cleanup on unmount
     return () => {
+      console.log('🔌 Disconnecting socket...')
       socketInstance.disconnect()
     }
   }, [])

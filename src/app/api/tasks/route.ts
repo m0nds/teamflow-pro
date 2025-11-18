@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { createTaskAssignedNotification, createTaskStatusNotification, createNotification } from '@/lib/notifications'
 import { z } from 'zod'
 
-// Validation schema for creating tasks
+const DEMO_USER_ID = 'demo-user-id'
+
 const createTaskSchema = z.object({
   title: z.string().min(1, 'Task title is required').max(200),
   description: z.string().max(1000).optional(),
@@ -12,7 +14,6 @@ const createTaskSchema = z.object({
   dueDate: z.string().optional().transform((str) => str ? new Date(str) : undefined)
 })
 
-// Schema for updating task status (drag & drop)
 const updateTaskStatusSchema = z.object({
   taskId: z.string(),
   status: z.enum(['TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'])
@@ -21,7 +22,7 @@ const updateTaskStatusSchema = z.object({
 export type CreateTaskInput = z.infer<typeof createTaskSchema>
 export type UpdateTaskStatusInput = z.infer<typeof updateTaskStatusSchema>
 
-// GET /api/tasks?projectId=xxx - Get tasks for a project
+// GET /api/tasks?projectId=xxx
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/tasks - Create new task
+// POST /api/tasks
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -78,6 +79,41 @@ export async function POST(request: NextRequest) {
       }
     })
 
+    console.log('🎉 Task created:', task.title)
+
+    // Create notification if task is assigned
+    if (task.assigneeId) {
+      console.log('📧 Task has assignee, creating notification...')
+      try {
+        await createTaskAssignedNotification(
+          task.assigneeId,
+          task.title,
+          task.id,
+          task.projectId
+        )
+        console.log('✅ Task assignment notification created')
+      } catch (notifError) {
+        console.error('⚠️ Failed to create notification:', notifError)
+      }
+    } else {
+      console.log('ℹ️ Task has no assignee, creating general notification...')
+      // Create a general task creation notification for the user
+      try {
+        await createNotification({
+          userId: DEMO_USER_ID,
+          type: 'TASK_ASSIGNED',
+          title: 'New Task Created',
+          message: `Task "${task.title}" has been created in ${task.project.title}`,
+          link: `/dashboard/projects/${task.projectId}`,
+          taskId: task.id,
+          projectId: task.projectId
+        })
+        console.log('✅ Task creation notification created')
+      } catch (notifError) {
+        console.error('⚠️ Failed to create notification:', notifError)
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: task
@@ -91,11 +127,24 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH /api/tasks - Update task status (for drag & drop)
+// PATCH /api/tasks - Update task status
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
     const { taskId, status } = updateTaskStatusSchema.parse(body)
+
+    // Get the old task to compare status
+    const oldTask = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { project: true }
+    })
+
+    if (!oldTask) {
+      return NextResponse.json(
+        { success: false, error: 'Task not found' },
+        { status: 404 }
+      )
+    }
 
     const task = await prisma.task.update({
       where: { id: taskId },
@@ -103,9 +152,29 @@ export async function PATCH(request: NextRequest) {
       include: {
         assignee: {
           select: { id: true, name: true, email: true }
+        },
+        project: {
+          select: { id: true, title: true }
         }
       }
     })
+
+    console.log('🔄 Task status updated from', oldTask.status, 'to', status)
+
+    // Create status change notification
+    try {
+      await createTaskStatusNotification(
+        DEMO_USER_ID,
+        task.title,
+        oldTask.status,
+        status,
+        task.id,
+        task.projectId
+      )
+      console.log('✅ Status change notification created')
+    } catch (notifError) {
+      console.error('⚠️ Failed to create status notification:', notifError)
+    }
 
     return NextResponse.json({
       success: true,

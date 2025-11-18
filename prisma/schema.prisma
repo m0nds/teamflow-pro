@@ -28,9 +28,52 @@ model User {
   // Your existing relationships
   projects      Project[]
   assignedTasks Task[]    @relation("TaskAssignee")
+  notifications    Notification[]  // Add this
+  sentActivities   Activity[]      @relation("ActivityCreator") // Add this
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// New Notification model
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  link      String?          // Link to related resource
+  read      Boolean          @default(false)
+  
+  // Related resources (optional)
+  projectId String?
+  taskId    String?
+  
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime         @default(now())
+  
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+// New Activity model (for activity feed)
+model Activity {
+  id          String       @id @default(cuid())
+  type        ActivityType
+  description String
+  projectId   String?
+  taskId      String?
+  userId      String       // Who performed the action
+  metadata    Json?        // Additional data
+  
+  user        User         @relation("ActivityCreator", fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime     @default(now())
+  
+  @@index([projectId])
+  @@index([taskId])
+  @@index([createdAt])
 }
 
 model Project {
@@ -104,6 +147,31 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// Notification types enum
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_STATUS_CHANGED
+  TASK_COMMENT
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  MENTION
+  TEAM_INVITE
+}
+
+// Activity types enum
+enum ActivityType {
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_DELETED
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_DELETED
+  TASK_STATUS_CHANGED
+  TASK_ASSIGNED
+  COMMENT_ADDED
+  TEAM_MEMBER_ADDED
 }
 
 // Add user roles enum

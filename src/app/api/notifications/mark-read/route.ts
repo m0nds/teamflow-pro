@@ -1,0 +1,41 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+
+const DEMO_USER_ID = 'demo-user-id'
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { notificationId, markAllRead } = body
+
+    console.log('📖 Mark as read request:', { notificationId, markAllRead })
+
+    if (markAllRead) {
+      const result = await prisma.notification.updateMany({
+        where: {
+          userId: DEMO_USER_ID,
+          read: false
+        },
+        data: { read: true }
+      })
+      console.log(`✅ Marked ${result.count} notifications as read`)
+    } else if (notificationId) {
+      await prisma.notification.update({
+        where: { id: notificationId },
+        data: { read: true }
+      })
+      console.log('✅ Marked single notification as read')
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Notifications marked as read'
+    })
+  } catch (error) {
+    console.error('Error marking notifications as read:', error)
+    return NextResponse.json(
+      { success: false, error: 'Failed to update notifications' },
+      { status: 500 }
+    )
+  }
+}

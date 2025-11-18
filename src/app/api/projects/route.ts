@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { createProjectSchema } from '@/lib/validations/project'
+import { createProjectNotification } from '@/lib/notifications'
 
-// Demo user ID for portfolio demonstration
 const DEMO_USER_ID = 'demo-user-id'
 
+// GET remains the same...
 export async function GET() {
   try {
     const projects = await prisma.project.findMany({
       include: {
         user: {
           select: { id: true, name: true, email: true }
+        },
+        _count: {
+          select: { tasks: true }
         }
       },
       orderBy: { createdAt: 'desc' }
@@ -34,7 +38,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const validatedData = createProjectSchema.parse(body)
 
-    // Ensure demo user exists or create it
     await ensureDemoUser()
 
     const project = await prisma.project.create({
@@ -45,9 +48,28 @@ export async function POST(request: NextRequest) {
       include: {
         user: {
           select: { id: true, name: true, email: true }
+        },
+        _count: {
+          select: { tasks: true }
         }
       }
     })
+
+    console.log('🎉 Project created, now creating notification...')
+
+    // Create notification for project creation
+    try {
+      await createProjectNotification(
+        DEMO_USER_ID,
+        project.title,
+        project.id,
+        'created'
+      )
+      console.log('✅ Project notification created')
+    } catch (notifError) {
+      console.error('⚠️ Failed to create notification, but project was created:', notifError)
+      // Don't fail the whole request if notification fails
+    }
 
     return NextResponse.json({
       success: true,
@@ -62,7 +84,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Helper function to ensure demo user exists
 async function ensureDemoUser() {
   const existingUser = await prisma.user.findUnique({
     where: { id: DEMO_USER_ID }
