@@ -1,131 +1,175 @@
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { createProjectSchema } from "@/lib/validations/project";
-import { createProjectNotification } from "@/lib/notifications";
+import { NextRequest, NextResponse } from 'next/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
+import { prisma } from '@/lib/prisma'
+import { createProjectSchema } from '@/lib/validations/project'
+import { createProjectNotification } from '@/lib/notifications'
 
-const DEMO_USER_ID = "demo-user-id";
-
-// Add helper function
-async function createActivity(
-  type: string,
-  description: string,
-  projectId?: string
-) {
-  try {
-    await prisma.activity.create({
-      data: {
-        type: type as any,
-        description,
-        userId: DEMO_USER_ID,
-        projectId,
-      },
-    });
-  } catch (error) {
-    console.error("Failed to create activity:", error);
-  }
-}
-
-// GET remains the same...
 export async function GET() {
   try {
+    const { userId } = await auth()
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Sync Clerk user with database
+    await syncUser(userId)
+
     const projects = await prisma.project.findMany({
+      where: { userId },
       include: {
         user: {
-          select: { id: true, name: true, email: true },
+          select: { id: true, name: true, email: true }
         },
         _count: {
-          select: { tasks: true },
-        },
+          select: { tasks: true }
+        }
       },
-      orderBy: { createdAt: "desc" },
-    });
+      orderBy: { createdAt: 'desc' }
+    })
 
     return NextResponse.json({
       success: true,
-      data: projects,
-    });
+      data: projects
+    })
   } catch (error) {
-    console.error("Error fetching projects:", error);
+    console.error('Error fetching projects:', error)
     return NextResponse.json(
-      { success: false, error: "Failed to fetch projects" },
+      { success: false, error: 'Failed to fetch projects' },
       { status: 500 }
-    );
+    )
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const validatedData = createProjectSchema.parse(body);
+    const { userId } = await auth()
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
 
-    await ensureDemoUser();
+    // Sync Clerk user with database
+    await syncUser(userId)
+
+    const body = await request.json()
+    const validatedData = createProjectSchema.parse(body)
 
     const project = await prisma.project.create({
       data: {
         ...validatedData,
-        userId: DEMO_USER_ID,
+        userId
       },
       include: {
         user: {
-          select: { id: true, name: true, email: true },
+          select: { id: true, name: true, email: true }
         },
         _count: {
-          select: { tasks: true },
-        },
-      },
-    });
+          select: { tasks: true }
+        }
+      }
+    })
 
-    // Create activity
-    await createActivity(
-      "PROJECT_CREATED",
-      `Created project "${project.title}"`,
-      project.id
-    );
+    console.log('🎉 Project created, creating notification...')
 
-    console.log("🎉 Project created, now creating notification...");
-
-    // Create notification for project creation
     try {
       await createProjectNotification(
-        DEMO_USER_ID,
+        userId,
         project.title,
         project.id,
-        "created"
-      );
-      console.log("✅ Project notification created");
+        'created'
+      )
     } catch (notifError) {
-      console.error(
-        "⚠️ Failed to create notification, but project was created:",
-        notifError
-      );
-      // Don't fail the whole request if notification fails
+      console.error('⚠️ Failed to create notification:', notifError)
     }
 
     return NextResponse.json({
       success: true,
-      data: project,
-    });
+      data: project
+    })
   } catch (error) {
-    console.error("Error creating project:", error);
+    console.error('Error creating project:', error)
     return NextResponse.json(
-      { success: false, error: "Failed to create project" },
+      { success: false, error: 'Failed to create project' },
       { status: 500 }
-    );
+    )
   }
 }
 
-async function ensureDemoUser() {
-  const existingUser = await prisma.user.findUnique({
-    where: { id: DEMO_USER_ID },
-  });
+// Helper to sync Clerk user with database
+async function syncUser(clerkUserId: string) {
+  try {
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { id: clerkUserId }
+    })
 
-  if (!existingUser) {
+    // If user exists, no need to sync
+    if (existingUser) {
+      return
+    }
+
+    // Get current user details from Clerk
+    const user = await currentUser()
+    
+    if (!user) {
+      console.warn('⚠️ User not found in Clerk, skipping sync')
+      return
+    }
+
+    // Extract user information
+    const primaryEmail = user.emailAddresses.find(email => email.id === user.primaryEmailAddressId)
+      || user.emailAddresses[0]
+    
+    const email = primaryEmail?.emailAddress
+    
+    // Email is required and unique, so we need it
+    if (!email) {
+      console.warn('⚠️ User has no email address, cannot sync:', clerkUserId)
+      return
+    }
+
+    // Check if a user with this email already exists (but different ID)
+    const existingUserByEmail = await prisma.user.findUnique({
+      where: { email }
+    })
+
+    if (existingUserByEmail && existingUserByEmail.id !== clerkUserId) {
+      console.warn(`⚠️ Email ${email} already exists for user ${existingUserByEmail.id}, skipping sync for ${clerkUserId}`)
+      return
+    }
+
+    const name = user.firstName || user.lastName 
+      ? `${user.firstName || ''} ${user.lastName || ''}`.trim() 
+      : user.username || null
+    const image = user.imageUrl
+
+    // Create the user
     await prisma.user.create({
       data: {
-        id: DEMO_USER_ID,
-        email: "demo@teamflow.pro",
-        name: "Demo User",
-      },
-    });
+        id: clerkUserId,
+        email,
+        name,
+        image
+      }
+    })
+    
+    console.log('✅ User synced with database:', clerkUserId)
+  } catch (error) {
+    // Check if it's a unique constraint error (user already exists)
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      console.log('ℹ️ User already exists (unique constraint), skipping:', clerkUserId)
+      return
+    }
+    
+    console.error('❌ Error syncing user with Clerk:', error)
+    // Don't try to create with minimal data - email is required
+    // Just log the error and continue
   }
 }

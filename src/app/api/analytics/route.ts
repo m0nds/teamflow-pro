@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
-
-const DEMO_USER_ID = 'demo-user-id'
 
 // Helper function to convert BigInt values to numbers for JSON serialization
 function serializeBigInt(obj: unknown): unknown {
@@ -30,9 +29,18 @@ function serializeBigInt(obj: unknown): unknown {
 
 export async function GET() {
   try {
+    const { userId } = await auth()
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     // Get total counts
     const totalProjects = await prisma.project.count({
-      where: { userId: DEMO_USER_ID }
+      where: { userId }
     })
 
     const totalTasks = await prisma.task.count()

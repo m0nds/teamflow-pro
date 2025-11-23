@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { useUser } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,9 +11,8 @@ import { ImageUpload } from '@/components/upload/image-upload'
 import { Loader2, Save } from 'lucide-react'
 import { toast } from 'sonner'
 
-const DEMO_USER_ID = 'demo-user-id'
-
 export default function SettingsPage() {
+  const { user, isLoaded } = useUser()
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [formData, setFormData] = useState({
@@ -24,37 +24,76 @@ export default function SettingsPage() {
 
   // Load user data
   useEffect(() => {
-    fetchUserData()
-  }, [])
+    if (!isLoaded || !user?.id) return
 
-  const fetchUserData = async () => {
-    setIsLoading(true)
-    try {
-      const response = await fetch(`/api/users/${DEMO_USER_ID}`)
-      const result = await response.json()
+    const fetchUserData = async () => {
+      setIsLoading(true)
+      try {
+        const response = await fetch(`/api/users/${user.id}`)
+        
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type')
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Invalid response format')
+        }
 
-      if (result.success) {
-        setFormData({
-          name: result.data.name || '',
-          email: result.data.email || '',
-          bio: result.data.bio || '',
-          image: result.data.image || ''
-        })
+        const result = await response.json()
+
+        if (result.success) {
+          setFormData({
+            name: result.data.name || '',
+            email: result.data.email || '',
+            bio: result.data.bio || '',
+            image: result.data.image || ''
+          })
+        } else {
+          // If user doesn't exist, show a message but don't error
+          if (response.status === 404) {
+            console.log('User not found in database, will be created on first action')
+            // Set form with Clerk user data as fallback
+            const clerkName = user.fullName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || ''
+            const clerkEmail = user.primaryEmailAddress?.emailAddress || ''
+            const clerkImage = user.imageUrl || ''
+            
+            setFormData({
+              name: clerkName,
+              email: clerkEmail,
+              bio: '',
+              image: clerkImage
+            })
+          } else {
+            toast.error(result.error || 'Failed to load profile')
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching user:', error)
+        // If it's a JSON parse error, the API might be returning HTML
+        if (error instanceof SyntaxError) {
+          toast.error('Server error: Invalid response format. Please refresh the page.')
+        } else {
+          toast.error('Failed to load profile')
+        }
+      } finally {
+        setIsLoading(false)
       }
-    } catch (error) {
-      console.error('Error fetching user:', error)
-      toast.error('Failed to load profile')
-    } finally {
-      setIsLoading(false)
     }
-  }
+
+    fetchUserData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, user?.id])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!user?.id) {
+      toast.error('User not authenticated')
+      return
+    }
+    
     setIsSaving(true)
 
     try {
-      const response = await fetch(`/api/users/${DEMO_USER_ID}`, {
+      const response = await fetch(`/api/users/${user.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -76,11 +115,21 @@ export default function SettingsPage() {
     }
   }
 
-  if (isLoading) {
+  if (!isLoaded || isLoading) {
     return (
       <div className="p-6">
         <div className="flex items-center justify-center h-64">
           <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-gray-600">Please sign in to view settings</p>
         </div>
       </div>
     )

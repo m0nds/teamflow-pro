@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState } from 'react'
+import { useUser } from '@clerk/nextjs'
 import { io, Socket } from 'socket.io-client'
 
 type SocketContextType = {
@@ -15,14 +16,17 @@ const SocketContext = createContext<SocketContextType>({
   onlineUsers: new Map()
 })
 
-const DEMO_USER_ID = 'demo-user-id'
-
 export function SocketProvider({ children }: { children: React.ReactNode }) {
+  const { user, isLoaded } = useUser()
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
+    if (!isLoaded || !user?.id) {
+      return
+    }
+
     console.log('🔌 Initializing Socket.io client...')
     
     const socketInstance = io({
@@ -34,8 +38,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       setIsConnected(true)
       
       // Join personal notification room
-      console.log(`📥 Joining notification room for user: ${DEMO_USER_ID}`)
-      socketInstance.emit('join-notifications', DEMO_USER_ID)
+      console.log(`📥 Joining notification room for user: ${user.id}`)
+      socketInstance.emit('join-notifications', user.id)
     })
 
     socketInstance.on('disconnect', () => {
@@ -73,7 +77,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       console.log('🔌 Disconnecting socket...')
       socketInstance.disconnect()
     }
-  }, [])
+  }, [isLoaded, user?.id])
 
   return (
     <SocketContext.Provider value={{ socket, isConnected, onlineUsers }}>

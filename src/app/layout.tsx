@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppProviders } from "@/components/providers/app-providers"
+import { ClerkProvider } from "@clerk/nextjs";
 
 export const metadata: Metadata = {
   title: "TeamFlow Pro",
@@ -15,9 +16,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        <AppProviders>
-          {children}
-        </AppProviders>
+        <ClerkProvider>
+          <AppProviders>
+            {children}
+          </AppProviders>
+        </ClerkProvider>
       </body>
     </html>
   );

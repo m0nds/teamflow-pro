@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import {
   createTaskAssignedNotification,
@@ -6,8 +7,6 @@ import {
   createNotification,
 } from "@/lib/notifications";
 import { z } from "zod";
-
-const DEMO_USER_ID = "demo-user-id";
 
 const createTaskSchema = z.object({
   title: z.string().min(1, "Task title is required").max(200),
@@ -30,6 +29,7 @@ export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskStatusInput = z.infer<typeof updateTaskStatusSchema>;
 
 async function createActivity(
+  userId: string,
   type: string,
   description: string,
   projectId?: string,
@@ -40,7 +40,7 @@ async function createActivity(
       data: {
         type: type as any,
         description,
-        userId: DEMO_USER_ID,
+        userId,
         projectId,
         taskId,
       },
@@ -92,6 +92,15 @@ export async function GET(request: NextRequest) {
 // POST /api/tasks
 export async function POST(request: NextRequest) {
   try {
+    const { userId } = await auth()
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const body = await request.json();
     const validatedData = createTaskSchema.parse(body);
 
@@ -109,6 +118,7 @@ export async function POST(request: NextRequest) {
 
     // Create activity record
     await createActivity(
+      userId,
       "TASK_CREATED",
       `Created task "${task.title}" in ${task.project.title}`,
       task.projectId,
@@ -134,7 +144,7 @@ export async function POST(request: NextRequest) {
       // Create a general task creation notification for the user
       try {
         await createNotification({
-          userId: DEMO_USER_ID,
+          userId,
           type: "TASK_ASSIGNED",
           title: "New Task Created",
           message: `Task "${task.title}" has been created in ${task.project.title}`,
@@ -164,6 +174,15 @@ export async function POST(request: NextRequest) {
 // PATCH /api/tasks - Update task status
 export async function PATCH(request: NextRequest) {
   try {
+    const { userId } = await auth()
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const body = await request.json();
     const { taskId, status } = updateTaskStatusSchema.parse(body);
 
@@ -195,6 +214,7 @@ export async function PATCH(request: NextRequest) {
 
     // Create activity record
     await createActivity(
+      userId,
       "TASK_STATUS_CHANGED",
       `Changed "${task.title}" status from ${oldTask.status.replace(
         "_",
@@ -207,7 +227,7 @@ export async function PATCH(request: NextRequest) {
     // Create status change notification
     try {
       await createTaskStatusNotification(
-        DEMO_USER_ID,
+        userId,
         task.title,
         oldTask.status,
         status,

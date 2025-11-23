@@ -1,17 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
-
-const DEMO_USER_ID = 'demo-user-id'
 
 // GET /api/notifications - Get user notifications
 export async function GET(request: NextRequest) {
   try {
+    const { userId } = await auth()
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
     const unreadOnly = searchParams.get('unread') === 'true'
 
     const notifications = await prisma.notification.findMany({
       where: {
-        userId: DEMO_USER_ID,
+        userId,
         ...(unreadOnly && { read: false })
       },
       orderBy: { createdAt: 'desc' },
@@ -20,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     const unreadCount = await prisma.notification.count({
       where: {
-        userId: DEMO_USER_ID,
+        userId,
         read: false
       }
     })
@@ -44,13 +52,22 @@ export async function GET(request: NextRequest) {
 // POST /api/notifications/mark-read - Mark notification as read
 export async function POST(request: NextRequest) {
   try {
+    const { userId } = await auth()
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const body = await request.json()
     const { notificationId, markAllRead } = body
 
     if (markAllRead) {
       await prisma.notification.updateMany({
         where: {
-          userId: DEMO_USER_ID,
+          userId,
           read: false
         },
         data: { read: true }
