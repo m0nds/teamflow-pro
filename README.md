@@ -205,9 +205,6 @@ teamflow-pro/
 
 This project is currently in active development. Contributions, suggestions, and feedback are welcome!
 
-## 📝 License
-
-[Add your license here]
 
 ## 🙏 Acknowledgments
 
